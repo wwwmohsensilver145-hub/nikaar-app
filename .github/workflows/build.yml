@@ -27,7 +27,7 @@ jobs:
     - name: Install Node dependencies
       run: npm install
 
-    - name: Install cordova-android (missing bridge library)
+    - name: Install cordova-android bridge
       run: npm install cordova-android@13.0.0 --no-save
 
     - name: Fix permissions
@@ -56,8 +56,31 @@ jobs:
         if ! grep -q "CordovaLib" "$CAP_GRADLE"; then
           sed -i '/^dependencies {/a\    implementation project(":CordovaLib")' "$CAP_GRADLE"
         fi
-        echo "===== settings.gradle ====="; cat "$SETTINGS"
-        echo "===== capacitor deps ====="; grep -n -A15 "dependencies {" "$CAP_GRADLE" | head -30
+
+    - name: Create init script to force official Google repo everywhere
+      run: |
+        cat > fix-repos.init.gradle <<'EOF'
+        settingsEvaluated { settings ->
+            settings.pluginManagement {
+                repositories {
+                    clear()
+                    google()
+                    mavenCentral()
+                    gradlePluginPortal()
+                }
+            }
+        }
+        allprojects {
+            afterEvaluate { project ->
+                project.buildscript.repositories.clear()
+                project.buildscript.repositories.google()
+                project.buildscript.repositories.mavenCentral()
+                project.repositories.clear()
+                project.repositories.google()
+                project.repositories.mavenCentral()
+            }
+        }
+        EOF
 
     - name: Fix gradlew permission
       run: chmod +x android/gradlew
@@ -66,7 +89,7 @@ jobs:
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
     - name: Build APK
-      run: cd android && ./gradlew assembleDebug --no-daemon
+      run: cd android && ./gradlew --init-script ../fix-repos.init.gradle assembleDebug --no-daemon
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
