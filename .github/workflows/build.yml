@@ -28,7 +28,9 @@ jobs:
       run: npm install
 
     - name: Fix permissions
-      run: chmod +x node_modules/.bin/vite
+      run: |
+        chmod +x node_modules/.bin/vite
+        chmod +x node_modules/.bin/cap
 
     - name: Build web app
       run: npm run build
