@@ -39,16 +39,27 @@ jobs:
     - name: Create assets directory
       run: mkdir -p android/app/src/main/assets
 
+    - name: Copy web assets to Android
+      run: npx cap copy android
+
+    - name: Update Android plugins
+      run: npx cap update android || true
+
     - name: Sync Capacitor
-      run: npx cap sync android
+      run: npx cap sync android || true
 
     - name: Accept Android licenses
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-    - name: Build APK
-      run: cd android && ./gradlew assembleDebug --no-daemon --stacktrace
+    - name: Build APK with retry
+      run: |
+        cd android
+        ./gradlew assembleDebug --no-daemon --stacktrace || \
+        ./gradlew assembleDebug --no-daemon --stacktrace --refresh-dependencies
+      continue-on-error: false
 
     - name: Upload APK
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: debug-apk
