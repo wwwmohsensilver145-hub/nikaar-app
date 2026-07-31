@@ -8,91 +8,127 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: Set up Java
-      uses: actions/setup-java@v4
+    - uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '17'
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
+    - uses: actions/setup-node@v4
       with:
         node-version: '22'
 
-    - name: Install Node dependencies
+    - uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.7'
+
+    - name: Install web deps
       run: npm install
-
-    - name: Install cordova-android bridge
-      run: npm install cordova-android@13.0.0 --no-save
-
-    - name: Fix permissions
-      run: chmod +x node_modules/.bin/vite node_modules/.bin/cap
 
     - name: Build web app
       run: npm run build
 
-    - name: Remove old android folder
-      run: rm -rf android
-
-    - name: Add fresh Android platform
-      run: npx cap add android
-
-    - name: Sync Capacitor
-      run: npx cap sync android
-
-    - name: Wire CordovaLib into the build
+    - name: Create clean Android project
       run: |
-        set +e
-        SETTINGS=android/settings.gradle
-        if ! grep -q "CordovaLib" "$SETTINGS"; then
-          printf '\ninclude ":CordovaLib"\nproject(":CordovaLib").projectDir = new File(rootProject.projectDir, "../node_modules/cordova-android/framework")\n' >> "$SETTINGS"
-        fi
-        CAP_GRADLE=node_modules/@capacitor/android/capacitor/build.gradle
-        if ! grep -q "CordovaLib" "$CAP_GRADLE"; then
-          sed -i '/^dependencies {/a\    implementation project(":CordovaLib")' "$CAP_GRADLE"
-        fi
+        rm -rf android
+        mkdir -p android/app/src/main/java/com/nikaar/app
+        mkdir -p android/app/src/main/res/values
+        mkdir -p android/app/src/main/assets/www
 
-    - name: Create init script to force official Google repo everywhere
-      run: |
-        cat > fix-repos.init.gradle <<'EOF'
-        settingsEvaluated { settings ->
-            settings.pluginManagement {
-                repositories {
-                    clear()
-                    google()
-                    mavenCentral()
-                    gradlePluginPortal()
-                }
-            }
+        cat > android/settings.gradle <<'EOF'
+        rootProject.name = "nikaar"
+        include ':app'
+        EOF
+
+        cat > android/build.gradle <<'EOF'
+        buildscript {
+            repositories { google(); mavenCentral() }
+            dependencies { classpath 'com.android.tools.build:gradle:8.5.0' }
         }
         allprojects {
-            afterEvaluate { project ->
-                project.buildscript.repositories.clear()
-                project.buildscript.repositories.google()
-                project.buildscript.repositories.mavenCentral()
-                project.repositories.clear()
-                project.repositories.google()
-                project.repositories.mavenCentral()
+            repositories { google(); mavenCentral() }
+        }
+        EOF
+
+        cat > android/gradle.properties <<'EOF'
+        android.useAndroidX=true
+        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        EOF
+
+        cat > android/app/build.gradle <<'EOF'
+        plugins { id 'com.android.application' }
+        android {
+            namespace 'com.nikaar.app'
+            compileSdk 34
+            defaultConfig {
+                applicationId "com.nikaar.app"
+                minSdk 24
+                targetSdk 34
+                versionCode 1
+                versionName "1.0"
+            }
+            compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+        }
+        dependencies { implementation 'androidx.appcompat:appcompat:1.7.0' }
+        EOF
+
+        cat > android/app/src/main/AndroidManifest.xml <<'EOF'
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+            <application android:label="Nikaar" android:usesCleartextTraffic="true" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN"/>
+                        <category android:name="android.intent.category.LAUNCHER"/>
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+
+        cat > android/app/src/main/java/com/nikaar/app/MainActivity.java <<'EOF'
+        package com.nikaar.app;
+        import android.os.Bundle;
+        import android.webkit.WebView;
+        import android.webkit.WebViewClient;
+        import android.webkit.WebSettings;
+        import androidx.appcompat.app.AppCompatActivity;
+        public class MainActivity extends AppCompatActivity {
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+                super.onCreate(savedInstanceState);
+                WebView webView = new WebView(this);
+                setContentView(webView);
+                WebSettings s = webView.getSettings();
+                s.setJavaScriptEnabled(true);
+                s.setDomStorageEnabled(true);
+                s.setAllowFileAccess(true);
+                s.setAllowFileAccessFromFileURLs(true);
+                s.setAllowUniversalAccessFromFileURLs(true);
+                webView.setWebViewClient(new WebViewClient());
+                webView.loadUrl("file:///android_asset/www/index.html");
             }
         }
         EOF
 
-    - name: Fix gradlew permission
-      run: chmod +x android/gradlew
+        cat > android/app/src/main/res/values/strings.xml <<'EOF'
+        <resources><string name="app_name">Nikaar</string></resources>
+        EOF
 
-    - name: Accept Android licenses
-      run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+    - name: Copy web build into assets
+      run: cp -r dist/. android/app/src/main/assets/www/
 
     - name: Build APK
-      run: cd android && ./gradlew --init-script ../fix-repos.init.gradle assembleDebug --no-daemon
+      run: cd android && gradle assembleDebug --no-daemon
 
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v4
       with:
         name: debug-apk
         path: android/app/build/outputs/apk/debug/app-debug.apk
+      
