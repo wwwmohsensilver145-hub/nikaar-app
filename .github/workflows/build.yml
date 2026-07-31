@@ -33,7 +33,7 @@ jobs:
     - name: Build web app
       run: npm run build
 
-    - name: Remove old broken android folder
+    - name: Remove old android folder
       run: rm -rf android
 
     - name: Add fresh Android platform
@@ -41,6 +41,12 @@ jobs:
 
     - name: Sync Capacitor
       run: npx cap sync android
+
+    - name: Replace broken aliyun mirror with official Google repo
+      run: |
+        find android -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i -e '/aliyun/{s/.*/google()/;a\mavenCentral()}' {} \;
+        echo "=== Checking remaining aliyun ==="
+        grep -rn "aliyun" android || echo "All aliyun removed successfully!"
 
     - name: Fix gradlew permission
       run: chmod +x android/gradlew
