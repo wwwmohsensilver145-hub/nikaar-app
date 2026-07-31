@@ -27,6 +27,9 @@ jobs:
     - name: Install Node dependencies
       run: npm install
 
+    - name: Install cordova-android (missing bridge library)
+      run: npm install cordova-android@13.0.0 --no-save
+
     - name: Fix permissions
       run: chmod +x node_modules/.bin/vite node_modules/.bin/cap
 
@@ -42,11 +45,19 @@ jobs:
     - name: Sync Capacitor
       run: npx cap sync android
 
-    - name: Replace broken aliyun mirror with official Google repo
+    - name: Wire CordovaLib into the build
       run: |
-        find android -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i -e '/aliyun/{s/.*/google()/;a\mavenCentral()}' {} \;
-        echo "=== Checking remaining aliyun ==="
-        grep -rn "aliyun" android || echo "All aliyun removed successfully!"
+        set +e
+        SETTINGS=android/settings.gradle
+        if ! grep -q "CordovaLib" "$SETTINGS"; then
+          printf '\ninclude ":CordovaLib"\nproject(":CordovaLib").projectDir = new File(rootProject.projectDir, "../node_modules/cordova-android/framework")\n' >> "$SETTINGS"
+        fi
+        CAP_GRADLE=node_modules/@capacitor/android/capacitor/build.gradle
+        if ! grep -q "CordovaLib" "$CAP_GRADLE"; then
+          sed -i '/^dependencies {/a\    implementation project(":CordovaLib")' "$CAP_GRADLE"
+        fi
+        echo "===== settings.gradle ====="; cat "$SETTINGS"
+        echo "===== capacitor deps ====="; grep -n -A15 "dependencies {" "$CAP_GRADLE" | head -30
 
     - name: Fix gradlew permission
       run: chmod +x android/gradlew
