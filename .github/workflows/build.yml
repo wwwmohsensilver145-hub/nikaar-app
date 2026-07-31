@@ -24,7 +24,7 @@ jobs:
       with:
         node-version: '22'
 
-    - name: Install dependencies
+    - name: Install Node dependencies
       run: npm install
 
     - name: Fix permissions
@@ -36,11 +36,17 @@ jobs:
     - name: Build web app
       run: npm run build
 
+    - name: Update Capacitor
+      run: npx cap update android
+
     - name: Sync Capacitor
       run: npx cap sync android
 
     - name: Accept Android licenses
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+    - name: Clean Android
+      run: cd android && ./gradlew clean
 
     - name: Build APK
       run: cd android && ./gradlew assembleDebug
