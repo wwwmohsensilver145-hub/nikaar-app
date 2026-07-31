@@ -45,11 +45,8 @@ jobs:
     - name: Accept Android licenses
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-    - name: Clean Android
-      run: cd android && ./gradlew clean
-
     - name: Build APK
-      run: cd android && ./gradlew assembleDebug
+      run: cd android && ./gradlew assembleDebug --no-daemon --stacktrace
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
