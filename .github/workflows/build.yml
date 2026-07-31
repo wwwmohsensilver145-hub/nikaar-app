@@ -22,48 +22,37 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20' # تغییر به نسخه پایدار LTS برای جلوگیری از ناسازگاری
-        cache: 'npm'
+        node-version: '22'
 
     - name: Install Node dependencies
-      # نکته: اگر فایل package-lock.json را در ریپازیتوری ندارید، این خط را به npm install تغییر دهید
-      run: npm ci 
+      run: npm install
 
     - name: Fix permissions
-      run: |
-        chmod +x node_modules/.bin/vite || true
-        chmod +x node_modules/.bin/cap || true
-        chmod +x android/gradlew
+      run: chmod +x node_modules/.bin/vite node_modules/.bin/cap
 
     - name: Build web app
       run: npm run build
 
+    - name: Remove old broken android folder
+      run: rm -rf android
+
+    - name: Add fresh Android platform
+      run: npx cap add android
+
     - name: Sync Capacitor
-      # حذف || true برای اینکه اگر سینک Capacitor به مشکل خورد، بیلد متوقف شود
       run: npx cap sync android
 
-    - name: Accept Android licenses
-      run: |
-        # روش استاندارد برای پذیرش لایسنس‌ها در اوبونتو
-        yes | sdkmanager --licenses || true
-        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+    - name: Fix gradlew permission
+      run: chmod +x android/gradlew
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
+    - name: Accept Android licenses
+      run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
     - name: Build APK
-      env:
-        # افزایش حافظه برای جلوگیری از کرش کردن Gradle در سرورهای گیت‌هاب
-        GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g"
-      run: |
-        cd android
-        ./gradlew assembleDebug --no-daemon --warning-mode all
+      run: cd android && ./gradlew assembleDebug --no-daemon
 
     - name: Upload APK
-      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: debug-apk
-        # استفاده از wildcard تا اگر نام فایل تغییر کرد، آپلود با خطا مواجه نشود
-        path: android/app/build/outputs/apk/debug/*.apk
-        if-no-files-found: error
+        path: android/app/build/outputs/apk/debug/app-debug.apk
