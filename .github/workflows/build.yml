@@ -8,129 +8,64 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    - uses: actions/setup-java@v4
+    - name: Set up Java
+      uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '17'
 
-    - uses: actions/setup-node@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
       with:
         node-version: '22'
 
-    - uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: '8.7'
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
 
-    - name: Install web deps
+    - name: Install Node dependencies
       run: npm install
-
-    - name: Fix vite permission
-      run: chmod +x node_modules/.bin/vite
 
     - name: Build web app
       run: npm run build
 
-    - name: Create clean Android project
+    - name: Sync Capacitor with Android
       run: |
-        rm -rf android
-        mkdir -p android/app/src/main/java/com/nikaar/app
-        mkdir -p android/app/src/main/res/values
-        mkdir -p android/app/src/main/assets/www
+        npx cap add android || true
+        npx cap sync android
 
-        cat > android/settings.gradle <<'EOF'
-        rootProject.name = "nikaar"
-        include ':app'
-        EOF
+    - name: Fix gradlew permissions
+      run: chmod +x android/gradlew
 
-        cat > android/build.gradle <<'EOF'
-        buildscript {
-            repositories { google(); mavenCentral() }
-            dependencies { classpath 'com.android.tools.build:gradle:8.5.0' }
-        }
-        allprojects {
-            repositories { google(); mavenCentral() }
-        }
-        EOF
+    - name: Accept Android licenses
+      run: yes | sdkmanager --licenses || true
 
-        cat > android/gradle.properties <<'EOF'
-        android.useAndroidX=true
-        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-        EOF
+    - name: Clean Gradle cache
+      run: rm -rf ~/.gradle/caches/
 
-        cat > android/app/build.gradle <<'EOF'
-        plugins { id 'com.android.application' }
-        android {
-            namespace 'com.nikaar.app'
-            compileSdk 34
-            defaultConfig {
-                applicationId "com.nikaar.app"
-                minSdk 24
-                targetSdk 34
-                versionCode 1
-                versionName "1.0"
-            }
-            compileOptions {
-                sourceCompatibility JavaVersion.VERSION_17
-                targetCompatibility JavaVersion.VERSION_17
-            }
-        }
-        dependencies { implementation 'androidx.appcompat:appcompat:1.7.0' }
-        EOF
+    - name: Build APK with debug info
+      run: |
+        cd android
+        ./gradlew assembleDebug --no-daemon --stacktrace --info --no-build-cache
 
-        cat > android/app/src/main/AndroidManifest.xml <<'EOF'
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-            <uses-permission android:name="android.permission.INTERNET"/>
-            <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-            <application android:label="Nikaar" android:usesCleartextTraffic="true" android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize">
-                    <intent-filter>
-                        <action android:name="android.intent.action.MAIN"/>
-                        <category android:name="android.intent.category.LAUNCHER"/>
-                    </intent-filter>
-                </activity>
-            </application>
-        </manifest>
-        EOF
+    - name: Verify APK exists
+      run: |
+        if [ -f android/app/build/outputs/apk/debug/app-debug.apk ]; then
+          echo "✅ APK built successfully!"
+          ls -la android/app/build/outputs/apk/debug/
+        else
+          echo "❌ APK not found!"
+          find android/app/build/outputs -name "*.apk" || echo "No APK files found"
+          exit 1
+        fi
 
-        cat > android/app/src/main/java/com/nikaar/app/MainActivity.java <<'EOF'
-        package com.nikaar.app;
-        import android.os.Bundle;
-        import android.webkit.WebView;
-        import android.webkit.WebViewClient;
-        import android.webkit.WebSettings;
-        import androidx.appcompat.app.AppCompatActivity;
-        public class MainActivity extends AppCompatActivity {
-            @Override
-            protected void onCreate(Bundle savedInstanceState) {
-                super.onCreate(savedInstanceState);
-                WebView webView = new WebView(this);
-                setContentView(webView);
-                WebSettings s = webView.getSettings();
-                s.setJavaScriptEnabled(true);
-                s.setDomStorageEnabled(true);
-                s.setAllowFileAccess(true);
-                s.setAllowFileAccessFromFileURLs(true);
-                s.setAllowUniversalAccessFromFileURLs(true);
-                webView.setWebViewClient(new WebViewClient());
-                webView.loadUrl("file:///android_asset/www/index.html");
-            }
-        }
-        EOF
-
-        cat > android/app/src/main/res/values/strings.xml <<'EOF'
-        <resources><string name="app_name">Nikaar</string></resources>
-        EOF
-
-    - name: Copy web build into assets
-      run: cp -r dist/. android/app/src/main/assets/www/
-
-    - name: Build APK
-      run: cd android && gradle assembleDebug --no-daemon
-
-    - uses: actions/upload-artifact@v4
+    - name: Upload APK
+      if: success()
+      uses: actions/upload-artifact@v4
       with:
         name: debug-apk
         path: android/app/build/outputs/apk/debug/app-debug.apk
